@@ -44,7 +44,7 @@ class SalesforceBulkJob:
     """A Python interface to the Salesforce Bulk API."""
 
     PUBLISHING_BATCH_SIZE = 9999
-    SUPPORTED_OPERATIONS = {'insert', 'update', 'delete', 'upsert'}
+    SUPPORTED_OPERATIONS = {'query', 'insert', 'update', 'delete', 'upsert'}
 
     def __init__(self, operation, object_name, external_id_field=None):
         """Creates a new API interface to Salesforce's bulk API, from which any
@@ -55,8 +55,8 @@ class SalesforceBulkJob:
         self.session_id = salesforce.session_id
         self.async_url = (salesforce.base_url
                                     .replace('/data/', '/async/')
-                                    .replace('v' + salesforce.sf_version,
-                                             salesforce.sf_version))
+                                    .replace('v' + salesforce.version,
+                                             salesforce.version))
 
         assert operation in self.SUPPORTED_OPERATIONS, '{} is not a valid bulk operation.'.format(operation)
         self.operation = operation
@@ -74,7 +74,7 @@ class SalesforceBulkJob:
         self.create()
         for chunk in chunked(data, self.PUBLISHING_BATCH_SIZE):
             if chunk:
-                self.add_batch(fields, chunk)
+                self.add_batch(chunk, fields)
         if not self.pending_batches:
             logger.info('No batches added to job.')
             self.abort()
@@ -115,17 +115,18 @@ class SalesforceBulkJob:
         self.pending_batches = []
         self.is_open = True
 
-    def add_batch(self, fields, data):
+    def add_batch(self, data, fields = None):
         """Given a list of fields and an iterable of tuples matching those
         fields, adds a batch of data to the current job.  The data must be
         shorter than PUBLISHING_BATCH_SIZE rows"""
         assert self.job, 'There is no current job.'
         assert self.is_open, 'The current job is not open.'
 
+        request_data = unicode(data, 'utf-8') if self.operation == 'query' else itercsv(fields, data)
+        content_type = 'text/csv; charset=UTF-8'
+
         logger.info('Adding batch to job %s', self.job_url)
-        response = self.request('post', self.job_url + '/batch',
-                                data=itercsv(fields, data),
-                                content_type='text/csv; charset=UTF-8')
+        response = self.request('post', self.job_url + '/batch', data=request_data, content_type=content_type)
         batch = bulk_response_attribute(response, 'id')
         self.pending_batches.append(batch)
 
