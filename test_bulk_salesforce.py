@@ -120,14 +120,14 @@ class XMLMatcher(object):
 
 def test_itercsv_always_emits_headers():
     """itercsv should always emit headers, even where there is no data"""
-    assert list(itercsv(['Hello', 'World'], [])) == [b'Hello,World\r\n']
+    assert list(itercsv(['Hello', 'World'], [])) == ['Hello,World\r\n']
 
 def test_itercsv_emits_data_lines():
     """itercsv should yield individual lines of CSV, with headers"""
     expected = [
-        b'Hello,World\r\n',
-        b'1,2\r\n',
-        b'3,4\r\n'
+        'Hello,World\r\n',
+        '1,2\r\n',
+        '3,4\r\n'
     ]
     assert list(itercsv(['Hello', 'World'], [[1, 2], [3, 4]])) == expected
 
@@ -244,7 +244,7 @@ def test_upload_orchestration(new_job):
         new_job.upload(['Id', 'Description'], [[1, 2], [3, 4]])
 
         create.assert_called_once_with()
-        add_batch.assert_called_once_with(['Id', 'Description'], [[1, 2], [3, 4]])
+        add_batch.assert_called_once_with(fields = ['Id', 'Description'], data = [[1, 2], [3, 4]])
         assert abort.call_count == 0
         close.assert_called_once_with()
         wait.assert_called_once_with()
@@ -338,7 +338,7 @@ def test_adding_a_batch(created_job, bulk_request):
     '''
 
     fake_data = [('1', '2'), ('3', '4')]
-    created_job.add_batch(['Id', 'Name'], iter(fake_data))
+    created_job.add_batch(fields = ['Id', 'Name'], data = iter(fake_data))
 
     assert created_job.pending_batches == ['BATCHONE']
 
@@ -350,7 +350,7 @@ def test_adding_a_batch(created_job, bulk_request):
     )
 
     data = bulk_request.call_args[1]['data']
-    assert b''.join(data) == b'Id,Name\r\n1,2\r\n3,4\r\n'
+    assert ''.join(data) == 'Id,Name\r\n1,2\r\n3,4\r\n'
 
 def test_closing_batch(created_job, bulk_request):
     """Closing a batch should set the internal state appropriately"""
@@ -398,7 +398,6 @@ def test_aborting_batch(created_job, bulk_request):
         expected_response=200
     )
 
-
 @pytest.fixture()
 def closed_job(created_job, bulk_request):
     """Prepares a job which has had two batches added to it, and has been closed"""
@@ -418,8 +417,8 @@ def closed_job(created_job, bulk_request):
             </batchInfo>
         ''',
     ]
-    created_job.add_batch(['Id', 'Description'], [[1, 2], [3, 4]])
-    created_job.add_batch(['Id', 'Description'], [[5, 6], [7, 8]])
+    created_job.add_batch(fields = ['Id', 'Description'], data = [[1, 2], [3, 4]])
+    created_job.add_batch(fields = ['Id', 'Description'], data = [[5, 6], [7, 8]])
     created_job.close()
     return created_job
 
@@ -469,12 +468,12 @@ def finished_job(closed_job):
 def test_getting_results(finished_job, bulk_request):
     bulk_request.reset_mock()
     bulk_request.side_effect = [
-        b'\n'.join([b'Id,Success,Created,Error',
-                    b'New,true,true,',
-                    b'Old,true,false,',
-                    b'Fail,false,false,bad things went down']),
-        b'\n'.join([b'Id,Success,Created,Error',
-                    b'Another,true,true,'])
+        '\n'.join(['Id,Success,Created,Error',
+                    'New,true,true,',
+                    'Old,true,false,',
+                    'Fail,false,false,bad things went down']),
+        '\n'.join(['Id,Success,Created,Error',
+                    'Another,true,true,'])
     ]
 
     results = list(finished_job.results())
@@ -485,6 +484,71 @@ def test_getting_results(finished_job, bulk_request):
         ('Another', True, True, '')
     ]
 
+@pytest.fixture()
+def query_job(salesforce_session):
+    """Prepares a job in for querying"""
+    return SalesforceBulkJob('query', 'Contact')
+
+def test_creating_a_query_job(query_job, bulk_request):
+    bulk_request.return_value = '''<?xml version="1.0" encoding="UTF-8"?>
+        <jobInfo xmlns="http://www.force.com/2009/06/asyncapi/dataload">
+            <id>THEJOBID</id>
+            <operation>query</operation>
+            <object>Contact</object>
+        </jobInfo>
+    '''
+    query_job.create()
+    bulk_request.assert_called_once_with(
+        'post',
+        'https://salesforce/services/async/34.0/job',
+        data=XMLMatcher('''<?xml version="1.0" encoding="UTF-8"?>
+            <jobInfo xmlns="http://www.force.com/2009/06/asyncapi/dataload">
+                <operation>query</operation>
+                <object>Contact</object>
+                <contentType>CSV</contentType>
+            </jobInfo>
+        ''')
+    )
+
+def test_adding_a_query(query_job, bulk_request):
+    """Adding a query should upload the plain text query to the job"""
+
+    bulk_request.reset_mock()
+    bulk_request.return_value = '''<?xml version="1.0" encoding="UTF-8"?>
+        <batchInfo xmlns="http://www.force.com/2009/06/asyncapi/dataload">
+            <id>BATCHONE</id>
+            <jobId>THEJOBID</jobId>
+            <state>Queued</state>
+        </batchInfo>
+    '''
+
+    query_job.create()
+
+    query = "SELECT Id,Name FROM Contact"
+    query_job.add_batch(data = query)
+
+    data = bulk_request.call_args[1]['data']
+    assert data == query
+
+def test_getting_query_results(query_job, bulk_request):
+    bulk_request.reset_mock()
+    bulk_request.side_effect = [
+        '\n'.join(['Id,Name',
+                    'Foo,Bar',
+                    ',Blurp',
+                    # 'コンサート,',
+                    'Bloog,'
+        ])
+    ]
+    query_job.create()
+    results = list(query_job.results())
+    assert results == [
+        ('Id', 'Name'),
+        ('Foo', 'Bar'),
+        (None, 'Blurp'),
+        # ('コンサート', None),
+        ('Bloog', None),
+    ]
 
 @pytest.yield_fixture()
 def httpretty():
@@ -505,35 +569,35 @@ def test_api_content_type(httpretty, new_job):
     """Requests should include the specified Content-Type for the supplied data"""
     url = 'https://salesforce/services/async/34.0/job/THEJOBID'
     httpretty.register_uri('POST', url, status=201)
-    new_job.request('post', url, data=b'hi', content_type='text/plain')
+    new_job.request('post', url, data='hi', content_type='text/plain')
     assert httpretty.last_request().headers['Content-Type'] == 'text/plain'
 
 def test_api_default_content_type(httpretty, new_job):
     """Requests should include the default Content-Type of application/xml"""
     url = 'https://salesforce/services/async/34.0/job/THEJOBID'
     httpretty.register_uri('POST', url, status=201)
-    new_job.request('post', url, data=b'hi')
+    new_job.request('post', url, data='hi')
     assert httpretty.last_request().headers['Content-Type'] == 'application/xml; charset=UTF-8'
 
 def test_api_get(httpretty, new_job):
     """Requests should support HTTP GET requests"""
     url = 'https://salesforce/services/async/34.0/job/THEJOBID'
-    httpretty.register_uri('GET', url, status=200, body=b'some xml and stuff')
+    httpretty.register_uri('GET', url, status=200, body='some xml and stuff')
     response = new_job.request('get', url, expected_response=200)
-    assert response == b'some xml and stuff'
+    assert response == 'some xml and stuff'
 
 def test_api_post(httpretty, new_job):
     """Requests should support HTTP POST requests"""
     url = 'https://salesforce/services/async/34.0/job/THEJOBID'
-    httpretty.register_uri('POST', url, status=201, body=b'some xml and stuff')
-    response = new_job.request('post', url, data=b'stuff')
-    assert response == b'some xml and stuff'
+    httpretty.register_uri('POST', url, status=201, body='some xml and stuff')
+    response = new_job.request('post', url, data='stuff')
+    assert response == 'some xml and stuff'
     assert httpretty.last_request().body == b'stuff'
 
 def test_api_requests_error_status(httpretty, new_job):
     """Requests should not retry when receiving an error status code"""
     url = 'https://salesforce/services/async/34.0/job/THEJOBID'
-    httpretty.register_uri('GET', url, status=500, body=b'some xml and stuff')
+    httpretty.register_uri('GET', url, status=500, body='some xml and stuff')
     with pytest.raises(Exception) as e:
         with mock.patch('salesforce_bulk_api.time.sleep') as sleep:
             new_job.request('get', url, expected_response=200)
@@ -546,9 +610,9 @@ def test_api_requests_server_unavailable_status(httpretty, new_job):
     httpretty.register_uri(
         'GET', url,
         responses=[
-            httpretty.Response(status=502, body=b'some xml and stuff'),
-            httpretty.Response(status=503, body=b'some xml and stuff'),
-            httpretty.Response(status=502, body=b'some xml and stuff')
+            httpretty.Response(status=502, body='some xml and stuff'),
+            httpretty.Response(status=503, body='some xml and stuff'),
+            httpretty.Response(status=502, body='some xml and stuff')
         ]
     )
     with pytest.raises(Exception) as e:

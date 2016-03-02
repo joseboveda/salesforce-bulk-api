@@ -74,7 +74,7 @@ class SalesforceBulkJob:
         self.create()
         for chunk in chunked(data, self.PUBLISHING_BATCH_SIZE):
             if chunk:
-                self.add_batch(chunk, fields)
+                self.add_batch(fields = fields, data = chunk)
         if not self.pending_batches:
             logger.info('No batches added to job.')
             self.abort()
@@ -122,7 +122,7 @@ class SalesforceBulkJob:
         assert self.job, 'There is no current job.'
         assert self.is_open, 'The current job is not open.'
 
-        request_data = unicode(data, 'utf-8') if self.operation == 'query' else itercsv(fields, data)
+        request_data = data if self.operation == 'query' else itercsv(fields, data)
         content_type = 'text/csv; charset=UTF-8'
 
         logger.info('Adding batch to job %s', self.job_url)
@@ -191,10 +191,14 @@ class SalesforceBulkJob:
         for batch in self.finished_batches:
             result_url = self.job_url + '/batch/' + batch + '/result'
             response = self.request('get', result_url, expected_response=200)
-            reader = csv.reader(StringIO(response.decode('utf-8')))
-            next(reader)  # consume the header row
-            for id, success, created, error in reader:
-                yield id, success == 'true', created == 'true', error
+            reader = csv.reader(StringIO(response))
+            if self.operation == 'query':
+                for row in reader:
+                    yield row
+            else:
+                next(reader)  # consume the header row
+                for id, success, created, error in reader:
+                    yield id, success == 'true', created == 'true', error
 
     def reset(self):
         """Resets the state of this job to that of a new instance.  This *does
@@ -236,14 +240,14 @@ class SalesforceBulkJob:
         if response.status_code != expected_response:
             raise Exception(('Unexpected status {} from '
                              'Salesforce async API.  Details: {}'
-                            ).format(response.status_code, response.content))
-        return response.content
+                            ).format(response.status_code, response.text))
+        return response.text
 
 
 def bulk_response_attribute(response, attribute):
     """Given a Salesforce bulk API response bytes, and the name of an attribute,
     find it in the given document, or raise if it isn't present"""
-    tree = ElementTree.fromstring(response)
+    tree = ElementTree.fromstring(response.encode('utf-8'))
     value = tree.findtext('{{{}}}{}'.format(NAMESPACE, attribute))
     if not value:
         raise Exception(('<{}> not found in Salesforce '
@@ -278,6 +282,6 @@ def itercsv(headers, data):
     for row in chain([headers], data):
         writer.writerow(row)
         buffer.seek(0)
-        yield buffer.read().encode('utf-8')
+        yield buffer.read()
         buffer.truncate(0)
         buffer.seek(0)
