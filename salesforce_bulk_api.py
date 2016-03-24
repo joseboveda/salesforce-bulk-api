@@ -122,7 +122,7 @@ class SalesforceBulkJob:
         assert self.job, 'There is no current job.'
         assert self.is_open, 'The current job is not open.'
 
-        request_data = data if self.operation == 'query' else itercsv(fields, data)
+        request_data = data.encode('utf-8') if self.operation == 'query' else itercsv(fields, data)
         content_type = 'text/csv; charset=UTF-8'
 
         logger.info('Adding batch to job %s', self.job_url)
@@ -247,7 +247,7 @@ class SalesforceBulkJob:
 def bulk_response_attribute(response, attribute):
     """Given a Salesforce bulk API response bytes, and the name of an attribute,
     find it in the given document, or raise if it isn't present"""
-    tree = ElementTree.fromstring(response.encode('utf-8'))
+    tree = ElementTree.fromstring(response)
     value = tree.findtext('{{{}}}{}'.format(NAMESPACE, attribute))
     if not value:
         raise Exception(('<{}> not found in Salesforce '
@@ -282,6 +282,6 @@ def itercsv(headers, data):
     for row in chain([headers], data):
         writer.writerow(row)
         buffer.seek(0)
-        yield buffer.read()
+        yield buffer.read().encode('utf-8')
         buffer.truncate(0)
         buffer.seek(0)
