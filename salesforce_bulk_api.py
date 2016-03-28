@@ -7,7 +7,7 @@
 
 from __future__ import unicode_literals, with_statement
 
-import csv
+import unicodecsv as csv
 from datetime import datetime, timedelta
 try:
     from cStringIO import StringIO
@@ -272,7 +272,7 @@ def itercsv(headers, data):
     """Given a list of headers name and a (potentially large) iterable of
     tuples, yield the lines of a CSV file representing that data"""
     buffer = StringIO()
-    writer = csv.writer(buffer)
+    writer = csv.writer(buffer, encoding='utf-8')
 
     for row in chain([headers], data):
         writer.writerow(row)
