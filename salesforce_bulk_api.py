@@ -55,8 +55,8 @@ class SalesforceBulkJob:
         self.session_id = salesforce.session_id
         self.async_url = (salesforce.base_url
                                     .replace('/data/', '/async/')
-                                    .replace('v' + salesforce.sf_version,
-                                             salesforce.sf_version))
+                                    .replace('v' + salesforce.version,
+                                             salesforce.version))
 
         assert operation in self.SUPPORTED_OPERATIONS, '{} is not a valid bulk operation.'.format(operation)
         self.operation = operation
@@ -277,6 +277,6 @@ def itercsv(headers, data):
     for row in chain([headers], data):
         writer.writerow(row)
         buffer.seek(0)
-        yield buffer.read().encode('utf-8')
+        yield buffer.read()
         buffer.truncate(0)
         buffer.seek(0)

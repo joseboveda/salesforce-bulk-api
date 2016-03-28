@@ -352,6 +352,34 @@ def test_adding_a_batch(created_job, bulk_request):
     data = bulk_request.call_args[1]['data']
     assert b''.join(data) == b'Id,Name\r\n1,2\r\n3,4\r\n'
 
+
+def test_adding_unicode_batch(created_job, bulk_request):
+    """Adding unicode shouldn't break anything"""
+    bulk_request.reset_mock()
+    bulk_request.return_value = '''<?xml version="1.0" encoding="UTF-8"?>
+        <batchInfo xmlns="http://www.force.com/2009/06/asyncapi/dataload">
+            <id>BATCHTWO</id>
+            <jobId>THEJOBID</jobId>
+            <state>Queued</state>
+        </batchInfo>
+    '''
+
+    fake_data = [(u'é', u'ñ')]
+    created_job.add_batch(['Id', 'Name'], iter(fake_data))
+
+    assert created_job.pending_batches == ['BATCHTWO']
+
+    bulk_request.assert_called_once_with(
+        'post',
+        'https://salesforce/services/async/34.0/job/THEJOBID/batch',
+        content_type='text/csv; charset=UTF-8',
+        data=mock.ANY
+    )
+
+    data = bulk_request.call_args[1]['data']
+    assert b''.join(data) == b'Id,Name\r\né,ñ\r\n'
+
+
 def test_closing_batch(created_job, bulk_request):
     """Closing a batch should set the internal state appropriately"""
     bulk_request.reset_mock()
