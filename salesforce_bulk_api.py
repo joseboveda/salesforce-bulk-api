@@ -55,8 +55,7 @@ class SalesforceBulkJob:
         self.session_id = salesforce.session_id
         self.async_url = (salesforce.base_url
                                     .replace('/data/', '/async/')
-                                    .replace('v' + salesforce.version,
-                                             salesforce.version))
+                                    .replace('v' + salesforce.sf_version, salesforce.sf_version))
 
         assert operation in self.SUPPORTED_OPERATIONS, '{} is not a valid bulk operation.'.format(operation)
         self.operation = operation

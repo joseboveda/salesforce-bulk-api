@@ -176,7 +176,7 @@ def salesforce_session():
     """Prepares a mock Salesforce session for the test suite"""
     with mock.patch('salesforce_bulk_api.salesforce_session') as salesforce_session:
         salesforce_session.return_value.session_id = 'the-session-id'
-        salesforce_session.return_value.version = '34.0'
+        salesforce_session.return_value.sf_version = '34.0'
         salesforce_session.return_value.base_url = 'https://salesforce/services/data/v34.0/'
 
         salesforce_session.return_value.describe.return_value = {
